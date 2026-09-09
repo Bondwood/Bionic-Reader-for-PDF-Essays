@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bionic Reader - Options</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main class="card">
+    <header>
+      <img src="../icons/icon48.png" alt="" width="32" height="32">
+      <h1>Bionic Reader Options</h1>
+    </header>
+
+    <form id="options-form" autocomplete="off">
+      <label class="field switch">
+        <span>
+          <strong>Enable Bionic Reading</strong>
+          <small>Emphasize word prefixes while reading PDFs.</small>
+        </span>
+        <input type="checkbox" id="enabled">
+      </label>
+
+      <label class="field switch">
+        <span>
+          <strong>Route PDF navigation</strong>
+          <small>Automatically open <code>.pdf</code> links in the Bionic viewer.</small>
+        </span>
+        <input type="checkbox" id="routePdfs">
+      </label>
+
+      <div class="field">
+        <label for="fixationPercent">
+          <strong>Fixation strength (%)</strong>
+          <small>Percent of each word emphasized.</small>
+        </label>
+        <span class="range-row">
+          <input type="range" id="fixationPercent" min="10" max="90" step="5">
+          <output id="fixationPercent-value">50%</output>
+        </span>
+      </div>
+
+      <div class="field">
+        <label for="strength">
+          <strong>Emphasis weight</strong>
+          <small>0 (light) to 4 (heavy).</small>
+        </label>
+        <span class="range-row">
+          <input type="range" id="strength" min="0" max="4" step="1">
+          <output id="strength-value">2</output>
+        </span>
+      </div>
+
+      <div class="field">
+        <label for="style"><strong>Emphasis style</strong></label>
+        <select id="style">
+          <option value="stroke">Stroke (outline)</option>
+          <option value="highlight">Highlight (background)</option>
+          <option value="shadow">Shadow (synthetic bold)</option>
+        </select>
+      </div>
+
+      <p id="status" role="status" aria-live="polite"></p>
+
+      <div class="actions">
+        <button type="submit" class="btn primary">Save</button>
+        <button type="button" id="reset" class="btn">Reset to defaults</button>
+      </div>
+    </form>
+  </main>
+
+  <script src="../src/messages.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

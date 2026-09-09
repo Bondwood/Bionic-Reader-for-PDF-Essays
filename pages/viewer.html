@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bionic Reader - Viewer</title>
+  <link rel="stylesheet" href="../src/viewer.css">
+</head>
+<body>
+  <!-- Module 4: Self-Hosted PDF Viewer Page -->
+  <div id="toolbar">
+    <button id="toggle-bionic" type="button" class="toolbar-btn" title="Toggle Bionic emphasis">Bionic: ON</button>
+
+    <label class="toolbar-group" id="strength-group" title="Emphasis strength">
+      <span class="toolbar-label">Strength</span>
+      <input id="strength" type="range" min="0" max="4" step="1">
+      <span id="strength-value" class="toolbar-value">2</span>
+    </label>
+
+    <label class="toolbar-group" id="fixation-group" title="Fixation prefix length (percent of each word)">
+      <span class="toolbar-label">Fixation</span>
+      <input id="fixation" type="range" min="10" max="90" step="5">
+      <span id="fixation-value" class="toolbar-value">50%</span>
+    </label>
+
+    <label class="toolbar-group" id="style-group" title="Emphasis style">
+      <span class="toolbar-label">Style</span>
+      <select id="style-select" class="toolbar-select">
+        <option value="stroke">Stroke</option>
+        <option value="highlight">Highlight</option>
+        <option value="shadow">Shadow</option>
+      </select>
+    </label>
+
+    <button id="zoom-out" type="button" class="toolbar-btn" title="Zoom out">−</button>
+    <button id="zoom-in" type="button" class="toolbar-btn" title="Zoom in">+</button>
+    <span id="zoom-level" class="toolbar-value">100%</span>
+
+    <div id="page-actions">
+      <button id="prev" type="button" class="toolbar-btn" title="Previous page">‹</button>
+      <span id="page">1 / 1</span>
+      <button id="next" type="button" class="toolbar-btn" title="Next page">›</button>
+    </div>
+    <span id="status" class="toolbar-status" role="status" aria-live="polite"></span>
+  </div>
+
+  <progress id="load-progress" max="100" value="0" hidden></progress>
+
+  <main id="viewer-container">
+    <div id="page-stack"></div>
+  </main>
+
+  <!-- Shared UMD engine/protocol modules (load as classic scripts; they attach
+       to window.BR.* and are read by viewer.js). -->
+  <script src="../src/messages.js"></script>
+  <script src="../src/security.js"></script>
+  <script src="../src/bionic-engine.js"></script>
+  <script src="../src/layout-preserver.js"></script>
+  <script src="../src/media-preserver.js"></script>
+
+  <!-- PDF.js ships as a vendored ES module (Module 5); viewer.js drives it. -->
+  <script type="module" src="../src/viewer.js"></script>
+</body>
+</html>

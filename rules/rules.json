@@ -1,0 +1,19 @@
+{
+  "_comment": "REFERENCE ONLY. This static rules file is NOT declared in manifest.json: a static DNR rule cannot substitute the extension id at runtime, so background.js registers the equivalent redirect as a DYNAMIC rule using the real chrome.runtime.id. It is kept here documenting the intended routing rule (Module 3).",
+  "rules": [
+    {
+      "id": 1,
+      "priority": 1,
+      "action": {
+        "type": "redirect",
+        "redirect": {
+          "regexSubstitution": "chrome-extension://<EXTENSION_ID>/pages/viewer.html?url=\\0"
+        }
+      },
+      "condition": {
+        "regexFilter": "^(?:https?|file)://.*\\.pdf(?:\\?[^#]*)?$",
+        "resourceTypes": ["main_frame"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,212 @@
+/* Module 4 - Self-Hosted PDF Viewer Page styles. */
+
+:root {
+  --toolbar-bg: #1f2430;
+  --toolbar-fg: #e8eaf0;
+  --toolbar-muted: #9aa3b2;
+  --accent: #4f8cff;
+  --page-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --error: #ff6b6b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #3a3f4b;
+  color: var(--toolbar-fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- Toolbar ---- */
+#toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid #000;
+  flex-wrap: wrap;
+}
+
+.toolbar-btn {
+  min-width: 34px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #353b49;
+  border-radius: 5px;
+  background: #2a3040;
+  color: var(--toolbar-fg);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.toolbar-btn:hover:not(:disabled) { background: #35405a; border-color: var(--accent); }
+.toolbar-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.toolbar-label { font-size: 12px; color: var(--toolbar-muted); }
+.toolbar-value { font-size: 12px; min-width: 28px; text-align: center; color: var(--toolbar-fg); }
+
+#toggle-bionic {
+  border-color: var(--accent);
+  background: #27406b;
+  font-weight: 600;
+}
+#toggle-bionic.off {
+  border-color: #555;
+  background: #2a3040;
+  color: var(--toolbar-muted);
+}
+
+#page-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+#page { font-size: 13px; min-width: 56px; text-align: center; }
+
+.toolbar-status {
+  flex: 0 1 auto;
+  font-size: 12px;
+  color: var(--toolbar-muted);
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toolbar-status.error { color: var(--error); }
+
+/* ---- Load progress ---- */
+#load-progress {
+  flex: 0 0 auto;
+  width: 100%;
+  height: 4px;
+  border: none;
+  background: #22262f;
+  -webkit-appearance: none;
+  appearance: none;
+}
+#load-progress::-webkit-progress-bar { background: #22262f; }
+#load-progress::-webkit-progress-value { background: var(--accent); }
+
+/* ---- Viewer container ---- */
+#viewer-container {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 20px 32px 48px;
+}
+
+#page-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+/* One rendered PDF page. Establishes the stacking context that keeps the paint
+   canvas (z 0) visually below the text layer (z 2). */
+.pdf-page {
+  position: relative;
+  background: #fff;
+  color: #000;
+  box-shadow: var(--page-shadow);
+}
+
+/* 3.3 Z-order (module spec):
+   3) text layer   (z: 2)  transparent, glyphs only
+   2) annotation layer (z: 1) optional
+   1) paint canvas (z: 0)  images + vector art - NEVER modified */
+.pdf-canvas {
+  position: relative;
+  z-index: 0;
+  display: block;
+  background: #fff;
+}
+
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  /* Transparent touch surface: never covers the canvas except for glyphs. */
+  pointer-events: none;
+  line-height: 1;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  transform-origin: 0 0;
+}
+
+.pdf-text-layer > span {
+  position: absolute;
+  white-space: pre;
+  transform-origin: 0 0;
+  /* Default emphasis (central constraint): stroke does NOT change advance
+     width, so every glyph stays at its original coordinate. */
+}
+
+/* Bionic emphasis styles (zero-layout-change strategies, spec 2.3). */
+.pdf-text-layer > span.bionic-stroke {
+  -webkit-text-stroke: 1.2px currentColor;
+}
+.pdf-text-layer > span.bionic-highlight {
+  background-color: rgba(255, 214, 80, 0.45);
+  border-radius: 2px;
+}
+.pdf-text-layer > span.bionic-shadow {
+  text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor, 0 0 1px currentColor;
+}
+
+/* Message area shown for loading / empty / error states. */
+#message-overlay {
+  margin: 64px auto;
+  max-width: 560px;
+  padding: 24px 28px;
+  background: #fff;
+  color: #222;
+  border-radius: 8px;
+  box-shadow: var(--page-shadow);
+  font-size: 15px;
+  line-height: 1.5;
+}
+#message-overlay h2 { margin-top: 0; font-size: 18px; }
+#message-overlay.error h2 { color: #c0392b; }
+#message-overlay button {
+  margin-top: 12px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 5px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* Emphasis toolbar select (fixation / style controls). */
+.toolbar-select {
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid #353b49;
+  border-radius: 5px;
+  background: #2a3040;
+  color: var(--toolbar-fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+.toolbar-select:hover {
+  border-color: var(--accent);
+}

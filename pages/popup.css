@@ -1,0 +1,60 @@
+:root {
+  --bg: #1f2430;
+  --fg: #e8eaf0;
+  --muted: #9aa3b2;
+  --accent: #4f8cff;
+  --accent-dark: #27406b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  width: 300px;
+}
+
+body { padding: 14px; }
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+header h1 { font-size: 16px; margin: 0; }
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.main-toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.main-toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+.state { font-size: 12px; color: var(--muted); }
+.state.on { color: #6fdc8c; }
+.state.off { color: #ff8f8f; }
+
+.actions { display: flex; flex-direction: column; gap: 8px; }
+.btn {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid #353b49;
+  border-radius: 6px;
+  background: #2a3040;
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.btn:hover:not(:disabled) { background: #35405a; border-color: var(--accent); }
+.btn.primary { background: var(--accent-dark); border-color: var(--accent); font-weight: 600; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.tip { font-size: 12px; color: var(--muted); margin: 14px 0 0; line-height: 1.45; }
+.tip code { background: #2a3040; padding: 0 3px; border-radius: 3px; }

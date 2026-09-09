@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bionic Reader</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img id="logo" src="../icons/icon48.png" alt="" width="28" height="28">
+    <h1>Bionic Reader</h1>
+  </header>
+
+  <div class="row">
+    <label for="enabled" class="main-toggle">
+      <span class="main-label">Enable Bionic Reading</span>
+      <input type="checkbox" id="enabled">
+    </label>
+    <span id="state" class="state">Loading…</span>
+  </div>
+
+  <div class="actions">
+    <button type="button" id="open-viewer" class="btn primary" disabled>Open PDF in Viewer</button>
+    <button type="button" id="options" class="btn">Options</button>
+  </div>
+
+  <p id="tip" class="tip">Open any <code>.pdf</code> link and it will render in the Bionic viewer.</p>
+
+  <script src="../src/messages.js"></script>
+  <script src="../src/security.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

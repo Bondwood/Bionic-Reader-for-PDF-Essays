@@ -1,0 +1,24 @@
+# Node / tooling
+node_modules/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Large real-world QA files (unit tests use tests/fixtures/sample.pdf instead)
+Test_PDF.pdf
+
+# Headless/DevTools diagnostic scripts (development only)
+analyze_pdf.mjs
+browse_test.cjs
+cdp_*.cjs
+dx_test.cjs
+http_test.cjs
+overlap_check*.cjs
+
+# Generated / machine-specific artifacts
+ext_id.txt
+viewer_shot.png
+overlap_check*.png
