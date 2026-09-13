@@ -45,7 +45,7 @@ Declare the extension's identity, permissions, entry points, and content securit
 
 - **`storage`** — persist user settings.
 - **`declarativeNetRequest` + host permissions** — rewrite/redirect navigations whose destination is a PDF so they open in our viewer. `host_permissions` grants read access needed to detect `application/pdf` responses; `file://` is included but requires the user to enable "Allow access to file URLs" manually.
-- **`content_scripts` run at `document_idle` in all frames** — intercept `<a href="*.pdf">` downloads/anchors and `<embed>`/`<iframe>` elements before they load in the browser maze.
+- **`content_scripts` run at `document_idle` in all frames** — intercept `<a href="*.pdf">` downloads and anchors and `<embed>`/`<iframe>` elements before they load.
 - **CSP `script-src 'self'`** — no remote scripts; PDF.js must be vendored.
 
 **Inputs**

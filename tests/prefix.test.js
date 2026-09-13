@@ -3,7 +3,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { computeFixationLength, baseFixationLength } = require('../src/bionic-engine.js');
+const { computeFixationLength, baseFixationLength, isNumberLike, isAllCaps, analyze } = require('../src/bionic-engine.js');
 
 // The classic Bionic convention yields these exact prefixes at the default 50%.
 // (The engine interpolates around the integer base, so for short words the
@@ -41,5 +41,40 @@ test('baseFixationLength bounds output for very long words', () => {
   for (let n = 1; n <= 40; n++) {
     const len = baseFixationLength('x'.repeat(n));
     assert.ok(len >= 1 && len <= n);
+  }
+});
+
+test('isNumberLike marks numeric tokens and rejects words without digits', () => {
+  assert.strictEqual(isNumberLike('123'), true);
+  assert.strictEqual(isNumberLike('23.4'), true);
+  assert.strictEqual(isNumberLike('-1/2'), true);
+  assert.strictEqual(isNumberLike('10^6'), true);
+  assert.strictEqual(isNumberLike('hello'), false);
+  assert.strictEqual(isNumberLike('ABC'), false);
+  assert.strictEqual(isNumberLike(''), false);
+});
+
+test('isAllCaps marks two-or-more-letter uppercase tokens only', () => {
+  assert.strictEqual(isAllCaps('NMR'), true);
+  assert.strictEqual(isAllCaps('TROSY'), true);
+  assert.strictEqual(isAllCaps('UP'), true);
+  assert.strictEqual(isAllCaps('T'), false);
+  assert.strictEqual(isAllCaps('Nmr'), false);
+  assert.strictEqual(isAllCaps('24.4'), false);
+  assert.strictEqual(isAllCaps('a'), false);
+});
+
+test('analyze sets full=true for numbers and all-caps words only', () => {
+  const segs = analyze('NMR 23.4 T normal', 50);
+  const byWord = segs.filter((sg) => sg.type === 'word');
+  const flags = Object.fromEntries(byWord.map((w) => [w.word, w.full]));
+  assert.deepStrictEqual(flags, {
+    NMR: true,
+    '23.4': true,
+    T: false,
+    normal: false
+  });
+  for (const w of byWord) {
+    assert.strictEqual(w.head + w.tail, w.word);
   }
 });

@@ -87,6 +87,24 @@
     };
   }
 
+  // A token counts as a "number" when it contains at least one digit. Units,
+  // signs, decimal points, slashes and similar numeric punctuation are covered
+  // by rendering the whole whitespace-delimited token, which is exactly what the
+  // caller does for fully-emphasized segments.
+  function isNumberLike(word) {
+    return typeof word === 'string' && /\d/.test(word);
+  }
+
+  // A token counts as "all-caps" when it has two or more letters and none of them
+  // are lowercase. Single uppercase letters (e.g. the unit "T" in "23.4 T") are
+  // left to the normal fixation-prefix path so we don't over-emphasize.
+  function isAllCaps(word) {
+    if (typeof word !== 'string') return false;
+    const letters = word.replace(/[^\p{L}]/gu, '');
+    if (letters.length < 2) return false;
+    return letters === letters.toUpperCase() && letters !== letters.toLowerCase();
+  }
+
   // High-level: turn a text run into an ordered list of segments, each either
   // a whitespace segment (keep verbatim) or an emphasized word segment.
   //   -> [{ type: 'space', text }, { type: 'word', text, head, tail, headLength }]
@@ -96,7 +114,10 @@
         return { type: 'space', text: part };
       }
       const e = emphasizeWord(part, percent);
-      return { type: 'word', ...e };
+      // Numbers and all-caps words are emphasized in full (every glyph stroked),
+      // rather than only the fixation prefix of a normal word.
+      const full = isNumberLike(part) || isAllCaps(part);
+      return { type: 'word', ...e, full };
     });
   }
 
@@ -106,6 +127,8 @@
     computeFixationLength,
     baseFixationLength,
     emphasizeWord,
+    isNumberLike,
+    isAllCaps,
     analyze
   });
 
@@ -115,6 +138,8 @@
       computeFixationLength,
       baseFixationLength,
       emphasizeWord,
+      isNumberLike,
+      isAllCaps,
       analyze
     };
   }

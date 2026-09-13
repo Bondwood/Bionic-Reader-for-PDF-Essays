@@ -14,7 +14,8 @@ import {
   configurePdfJs,
   openDocument,
   renderPageToCanvas,
-  getTextItems,
+  getTextContent,
+  getFontBaseNames,
   getViewport,
   DEVICE_SCALE
 } from './pdf_renderer.js';
@@ -27,6 +28,7 @@ import {
   const Layout = BR.LayoutPreserver;
   const Media = BR.Media;
   const Security = BR.Security || {};
+  const SymbolEncoding = BR.SymbolEncoding || null;
 
   // ---- Settings contract (Module 2 DEFAULT_SETTINGS) ----------------------
   const DEFAULT_SETTINGS = Object.freeze({
@@ -250,14 +252,27 @@ import {
     if (token !== renderToken) return;
 
     let textItems = [];
-    try { textItems = await getTextItems(page); } catch (err) { textItems = []; }
+    let textStyles = {};
+    let fontBaseNames = {};
+    try {
+      const content = await getTextContent(page);
+      textItems = content.items || [];
+      textStyles = content.styles || {};
+      // Resolve real BaseFont names (Symbol vs Wingdings vs ZapfDingbats) BEFORE
+      // page.cleanup() tears down commonObjs. Same PUA codepoint means different
+      // glyphs depending on the font, so the text layer needs the real name.
+      try {
+        const names = textItems.map((it) => it && it.fontName).filter(Boolean);
+        fontBaseNames = await getFontBaseNames(page, names);
+      } catch (e) { fontBaseNames = {}; }
+    } catch (err) { textItems = []; textStyles = {}; fontBaseNames = {}; }
     try { await page.cleanup(); } catch (e) {}
 
     setLoadingProgress(0.9);
     if (!textItems.length) {
       reportStatus('No machine text found; showing the PDF as-is.', false);
     } else {
-      buildTextLayer(textLayer, viewport, textItems);
+      buildTextLayer(textLayer, viewport, textItems, textStyles, fontBaseNames);
     }
 
     setLoadingProgress(1);
@@ -269,71 +284,144 @@ import {
   // Each glyph span is absolutely positioned at its exact PDF coordinate and the
   // paint canvas is left untouched. Emphasis uses only zero-layout-change CSS,
   // then the Geometry Guard measures/compensates (Module 7).
-  function buildTextLayer(textLayer, viewport, items) {
+  // Map a PDF text-content style's generic family to a Unicode-complete CSS
+  // font stack that covers Latin, Greek, and math/symbol glyphs, so no codepoint
+  // falls to a tofu/missing box. Falls back to a broad serif stack.
+  function resolveFontFamily(family) {
+    if (family === 'monospace') {
+      return '"Courier New", "Consolas", monospace, "Segoe UI Symbol", "Noto Sans Symbols", sans-serif';
+    }
+    if (family === 'sans-serif') {
+      return '"Arial", "Helvetica", "Segoe UI", sans-serif, "Segoe UI Symbol", "Noto Sans Symbols", sans-serif';
+    }
+    // 'serif' and anything unknown: serif covers Greek/math well.
+    return '"Times New Roman", Georgia, "Cambria Math", serif, "Segoe UI Symbol", "Noto Sans Symbols", sans-serif';
+  }
+
+  function buildTextLayer(textLayer, viewport, items, styles, fontBaseNames) {
     const styleClass = STYLE_CLASSES[settings.style] || STYLE_CLASSES.stroke;
     const strokeWidth = STROKE_WIDTHS[settings.strength] || STROKE_WIDTHS[2];
     const bionicOn = !!settings.enabled;
     const pct = settings.fixationPercent;
-
-    const v0 = viewport.transform[0];
-    const v3 = viewport.transform[3];
+    const stylesMap = styles || {};
 
     const placements = [];
     for (const item of items) {
       if (!item || typeof item.str !== 'string' || item.str.length === 0) continue;
+
+      // Symbol-encoded glyphs are extracted as PUA codepoints (U+F000..U+F0FF)
+      // that normal UI fonts cannot draw. Remap them to real Unicode so Greek
+      // letters, arrows, and super/subscript symbols don't disappear (Module 13).
+      // The same PUA codepoint differs by font (U+F0E0 is a lozenge in Symbol
+      // but a heavy arrow in Wingdings), so decode with the resolved BaseFont.
+      const baseFont = fontBaseNames && item.fontName ? fontBaseNames[item.fontName] : null;
+      const text = (SymbolEncoding && typeof SymbolEncoding.remapTextForFont === 'function')
+        ? SymbolEncoding.remapTextForFont(item.str, baseFont)
+        : item.str;
+
+      // Honor the PDF's actual font family + metrics from the text-content
+      // styles table (fontName -> { fontFamily, ascent, descent }). This keeps
+      // Greek/Symbol glyphs in a font that actually covers them and gives each
+      // run its true baseline (critical for superscripts/subscripts).
+      const fontStyle = stylesMap[item.fontName] || {};
+      const family = resolveFontFamily(fontStyle.fontFamily);
+
       const placement = Layout.computePlacement(item, viewport.transform);
+      if (fontStyle.ascent && fontStyle.descent) {
+        // ascent/descent are fractions of the em box (may be >0 or <0).
+        const asc = Math.abs(fontStyle.ascent);
+        const desc = Math.abs(fontStyle.descent);
+        placement.ascentRatio = (asc + desc) ? asc / (asc + desc) : 0.8;
+      }
+
       const span = document.createElement('span');
-      span.style.fontFamily = '"Helvetica", "Arial", sans-serif';
+      span.style.fontFamily = family;
       span.style.whiteSpace = 'pre';
       Layout.positionSpan(span, placement);
 
       if (!bionicOn) {
-        span.textContent = item.str;
+        span.textContent = text;
       } else if (Bionic && typeof Bionic.analyze === 'function') {
-        const segments = Bionic.analyze(item.str, pct);
+        const segments = Bionic.analyze(text, pct);
         for (const seg of segments) {
           if (seg.type === 'space') {
             span.appendChild(document.createTextNode(seg.text));
           } else {
             // Zero-layout-change emphasis (stroke/highlight/shadow): splitting
             // into runs never shifts glyph coordinates.
-            const run = document.createElement('span');
-            run.style.whiteSpace = 'pre';
+            //
+            // Numbers and all-caps words are emphasized in full (the whole token
+            // is stroked), while regular words keep the bionic fixation prefix.
+            const emphasizedText = seg.full ? seg.word : seg.head;
+            const tailText = seg.full ? '' : seg.tail;
             const head = document.createElement('span');
-            head.textContent = seg.head;
+            head.textContent = emphasizedText;
             head.classList.add(styleClass);
             if (styleClass === 'bionic-stroke') {
               head.style.setProperty('-webkit-text-stroke', strokeWidth);
             }
-            run.appendChild(head);
-            run.appendChild(document.createTextNode(seg.tail));
-            span.appendChild(run);
+            // Ensure the styled run inherits the no-wrap behavior of its parent so
+            // the full token and its prefix split are measured identically.
+            head.style.whiteSpace = 'pre';
+
+            if (tailText) {
+              const run = document.createElement('span');
+              run.style.whiteSpace = 'pre';
+              run.appendChild(head);
+              run.appendChild(document.createTextNode(tailText));
+              span.appendChild(run);
+            } else {
+              span.appendChild(head);
+            }
           }
         }
       } else {
-        span.textContent = item.str; // engine missing -> render as-is (never blank)
+        span.textContent = text; // engine missing -> render as-is (never blank)
       }
 
+      // Horizontal advance correction (Module 7): the overlay uses a
+      // substituted system font whose glyph advances differ from the PDF's
+      // embedded font. Each item is an independent span, so a mismatch shows up
+      // as over-/under-spacing around runs of a different size or font - most
+      // visibly superscripts and subscripts. Scale the span horizontally so its
+      // rendered width matches the embedded font's advance (item.width, in
+      // user-space points, converted to screen px by the viewport x-scale).
+      const pxScale = (viewport.transform && Number.isFinite(viewport.transform[0]))
+        ? viewport.transform[0]
+        : 1;
+      const intendedWidthPx = Number.isFinite(item.width) ? item.width * pxScale : 0;
+      if (Layout && typeof Layout.applyHorizontalScale === 'function' && intendedWidthPx > 0) {
+        Layout.applyHorizontalScale(span, text, family, placement.fontSize, intendedWidthPx);
+      }
       textLayer.appendChild(span);
 
-      // Intended advance width for the geometry guard (approx from font size).
+      // Intended origin for the geometry guard. x matches span.style.left and
+      // y is the span TOP (the value positionSpan writes to style.top), so both
+      // compare like-for-like against getBoundingClientRect.
+      const top = placement.y - (placement.ascentRatio !== undefined
+        ? placement.fontSize * placement.ascentRatio
+        : placement.fontSize * 0.8);
       placements.push({
         span,
         intended: {
           x: placement.x,
-          y: placement.y,
-          width: item.width || placement.fontSize * item.str.length * 0.5
+          y: top
         }
       });
     }
 
     // Geometry Guard (Module 7, mandatory): measure every span and compensate
-    // only if a measurable x-drift is detected. Stroke/highlight/shadow cause
+    // only if a real position drift is detected. Stroke/highlight/shadow cause
     // none, so this is normally a no-op fast path.
     if (Layout && typeof Layout.runGeometryGuard === 'function') {
       const report = Layout.runGeometryGuard(placements, { parent: textLayer, compensate: true });
       if (report.drifts.length > 0) {
-        console.warn(`[Bionic Reader] Geometry guard corrected ${report.compensated.length}/${report.drifts.length} drift(s).`);
+        const driftCount = report.drifts.length;
+        const driftWord = driftCount === 1 ? 'drift' : 'drifts';
+        const fixedCount = report.compensated.length;
+        console.warn(
+          `[Bionic Reader] Geometry guard detected ${driftCount} ${driftWord} and corrected ${fixedCount}.`
+        );
       }
     }
   }
