@@ -305,6 +305,20 @@ import {
     const pct = settings.fixationPercent;
     const stylesMap = styles || {};
 
+    // Resolve, once per page, the base run each item belongs to. A sub/superscript
+    // is a materially smaller run whose baseline is offset from an adjacent
+    // larger run; those runs must never be stroked (see Layout.findScriptBase).
+    const itemsWithText = items.filter(
+      (it) => it && typeof it.str === 'string' && it.str.length > 0
+    );
+    const scriptKinds = new Map();
+    if (Layout && typeof Layout.findScriptBase === 'function') {
+      for (const it of itemsWithText) {
+        const base = Layout.findScriptBase(it, itemsWithText);
+        scriptKinds.set(it, Layout.classifyScriptAgainstBase(it, base));
+      }
+    }
+
     const placements = [];
     for (const item of items) {
       if (!item || typeof item.str !== 'string' || item.str.length === 0) continue;
@@ -323,6 +337,12 @@ import {
       // styles table (fontName -> { fontFamily, ascent, descent }). This keeps
       // Greek/Symbol glyphs in a font that actually covers them and gives each
       // run its true baseline (critical for superscripts/subscripts).
+      // Classify sub/superscript runs from their geometry. Their glyphs are
+      // already in the correct place; the rule is simply that they must never be
+      // given a fixation-prefix stroke (which would emphasize the wrong glyphs).
+      const scriptKind = scriptKinds.get(item) || null;
+      const isScript = !!scriptKind;
+
       const fontStyle = stylesMap[item.fontName] || {};
       const family = resolveFontFamily(fontStyle.fontFamily);
 
@@ -339,7 +359,8 @@ import {
       span.style.whiteSpace = 'pre';
       Layout.positionSpan(span, placement);
 
-      if (!bionicOn) {
+      if (!bionicOn || isScript) {
+        // Disabled, or a sub/superscript run: render verbatim, never stroked.
         span.textContent = text;
       } else if (Bionic && typeof Bionic.analyze === 'function') {
         const segments = Bionic.analyze(text, pct);
@@ -352,6 +373,11 @@ import {
             //
             // Numbers and all-caps words are emphasized in full (the whole token
             // is stroked), while regular words keep the bionic fixation prefix.
+            if (seg.operator) {
+              // Standalone math operators/delimiters are never emphasized.
+              span.appendChild(document.createTextNode(seg.word));
+              continue;
+            }
             const emphasizedText = seg.full ? seg.word : seg.head;
             const tailText = seg.full ? '' : seg.tail;
             const head = document.createElement('span');
@@ -390,7 +416,12 @@ import {
         ? viewport.transform[0]
         : 1;
       const intendedWidthPx = Number.isFinite(item.width) ? item.width * pxScale : 0;
-      if (Layout && typeof Layout.applyHorizontalScale === 'function' && intendedWidthPx > 0) {
+      // Sub/superscript runs are excluded from the horizontal advance correction.
+      // They are separate small runs whose PDF advance is already tightly
+      // attached to the base glyph; scaling them to a substituted font's metric
+      // shifts them off their intended anchor (the page-3 "ref"/"6" tearing).
+      // PDF.js itself only scales full-size glyph runs for this reason.
+      if (!isScript && Layout && typeof Layout.applyHorizontalScale === 'function' && intendedWidthPx > 0) {
         Layout.applyHorizontalScale(span, text, family, placement.fontSize, intendedWidthPx);
       }
       textLayer.appendChild(span);

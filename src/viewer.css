@@ -160,14 +160,14 @@ body {
 }
 
 /* Bionic emphasis styles (zero-layout-change strategies, spec 2.3). */
-.pdf-text-layer > span.bionic-stroke {
+.pdf-text-layer .bionic-stroke {
   -webkit-text-stroke: 1.2px currentColor;
 }
-.pdf-text-layer > span.bionic-highlight {
+.pdf-text-layer .bionic-highlight {
   background-color: rgba(255, 214, 80, 0.45);
   border-radius: 2px;
 }
-.pdf-text-layer > span.bionic-shadow {
+.pdf-text-layer .bionic-shadow {
   text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor, 0 0 1px currentColor;
 }
 

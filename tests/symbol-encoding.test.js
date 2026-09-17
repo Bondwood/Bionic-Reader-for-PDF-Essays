@@ -7,7 +7,9 @@ const {
   remapSymbolText,
   remapTextForFont,
   hasSymbolPua,
-  hasSymbolGlyph
+  hasSymbolGlyph,
+  normalizeMinus,
+  isStandaloneDashRun
 } = require('../src/symbol-encoding.js');
 
 test('remaps Symbol PUA Greek letters to real Unicode', () => {
@@ -121,4 +123,87 @@ test('font-aware remap handles non-string input safely', () => {
   assert.strictEqual(remapTextForFont(null, 'Wingdings'), null);
   assert.strictEqual(remapTextForFont(undefined, 'Wingdings'), undefined);
   assert.strictEqual(remapTextForFont('', 'Wingdings'), '');
+});
+
+// ---- Minus-sign normalization (page-3 minus-mark fix) ----------------------
+// Math PDFs embed inconsistent dash codepoints, and PDF.js may emit a hyphen
+// (U+002D) where the visual glyph is a true minus. All variants normalize to
+// U+2212 so the engine's isMathOperator sees one consistent operator glyph.
+
+test('normalizeMinus maps every dash variant to U+2212', () => {
+  const variants = [
+    '\u2212', // MINUS SIGN (the canonical target)
+    '\u2010', // HYPHEN
+    '\u2011', // NON-BREAKING HYPHEN
+    '\u2012', // FIGURE DASH
+    '\u2013', // EN DASH
+    '\u2014', // EM DASH
+    '\u2015', // HORIZONTAL BAR
+    '\uFE58', // SMALL EM DASH
+    '\uFE63', // SMALL HYPHEN-MINUS
+    '\uFF0D', // FULLWIDTH HYPHEN-MINUS
+    '\u002D'  // ASCII HYPHEN-MINUS (what PDF.js emitted on page 3)
+  ];
+  for (const ch of variants) {
+    assert.strictEqual(normalizeMinus(ch), '\u2212', JSON.stringify(ch));
+  }
+});
+
+test('normalizeMinus leaves non-dash characters untouched', () => {
+  for (const ch of ['a', 'Z', '0', '=', '+', '\u03BD', ' ']) {
+    assert.strictEqual(normalizeMinus(ch), ch, JSON.stringify(ch));
+  }
+});
+
+test('remapSymbolText normalizes a standalone dash run to a true minus', () => {
+  assert.strictEqual(remapSymbolText('-'), '\u2212');
+  assert.strictEqual(remapSymbolText(' - '), '\u2212');
+  assert.strictEqual(remapSymbolText('\u2013'), '\u2212');
+});
+
+test('remapSymbolText preserves prose hyphens and dashes verbatim', () => {
+  // Rewriting these would change the rendered advance and corrupt the text.
+  for (const s of ['well-known', 'spin-1/2', 'non-invasive', 'FID-based',
+                   'peak \u2013 trough', 'a\u2014b', 'spanning 2-23.4 Tesla']) {
+    assert.strictEqual(remapSymbolText(s), s, s);
+  }
+});
+
+test('isStandaloneDashRun accepts only dash-only runs', () => {
+  for (const s of ['-', ' - ', '\u2013', '\u2212', '\u2014']) {
+    assert.strictEqual(isStandaloneDashRun(s), true, JSON.stringify(s));
+  }
+  for (const s of ['well-known', '1-2', 'a-b', '', 'x', '-1', '1-']) {
+    assert.strictEqual(isStandaloneDashRun(s), false, JSON.stringify(s));
+  }
+});
+
+// ---- Page-3 formula glyphs (nu / minus / subscript ref) ------------------
+// Test_PDF.pdf page 3 typesets its formula in a Cambria Math Identity-H font
+// whose /ToUnicode CMap is partial. PDF.js therefore emits glyph ids from
+// unrelated Indic blocks for the Greek nu, the minus, and the subscript
+// 'ref'. The LEAKED_GID table must decode every one of those runs.
+
+test('page-3 formula: nu and minus decode to real math glyphs', () => {
+  assert.strictEqual(remapTextForFont('\u0C14 \u0B3F \u0C14', 'Symbol'), '\u03BD \u2212 \u03BD');
+});
+
+test('page-3 formula: subscript ref decodes (Kannada glyph ids)', () => {
+  assert.strictEqual(remapTextForFont('\u0CC1\u0CDD\u0CD0\u0CD1', 'Symbol'), '\u200Bref');
+  assert.strictEqual(remapTextForFont('\u0CDD\u0CD0\u0CD1', 'Symbol'), 'ref');
+});
+
+test('page-3 formula: alternate Telugu subscript ref glyph ids decode too', () => {
+  assert.strictEqual(remapTextForFont('\u0C90\u0C91\u0C92', 'Symbol'), 'ref');
+});
+
+test('page-3 formula: sigma_obs run decodes', () => {
+  assert.strictEqual(remapTextForFont('\u07EA\u0BE2\u0BD5\u0BE6 \u0D4C', 'Symbol'), '\u03C3obs =');
+  assert.strictEqual(remapTextForFont('\u0BE2\u0BD5\u0BE6\u07EA', 'Symbol'), 'obs\u03C3');
+});
+
+test('page-3 formula: script-positioning artifact maps to zero-width space', () => {
+  // U+0CC1 is a positioning artifact with no visible glyph; it must not leak
+  // through as tofu and must not be mistaken for a dash.
+  assert.strictEqual(remapTextForFont('\u0CC1', 'Symbol'), '\u200B');
 });

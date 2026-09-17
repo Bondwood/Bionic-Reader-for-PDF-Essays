@@ -89,6 +89,102 @@
     };
   }
 
+  // ---- Sub/superscript classification -------------------------------------
+  //
+  // PDF.js splits a formula into several text items: the base run (12pt) and one
+  // or more materially smaller runs (8.5pt, 7pt) whose baseline is vertically
+  // offset from the base (e.g. the "obs"/"ref" of sigma_obs, the "6" of 10^6).
+  // Those smaller runs are sub/superscripts and must NOT receive a Bionic
+  // fixation stroke: stroking them emphasizes the wrong glyphs and destroys the
+  // sub/superscript reading (nu_ref renders as "nuref", 10^6 as "106").
+  //
+  // The classification is purely geometric and font-agnostic. A run is a script
+  // when it is materially smaller than a nearby base run AND its baseline is
+  // offset from that base:
+  //   * the base is a larger run on the same visual line (|dy| <= 0.85 * base);
+  //   * the run is horizontally close to that base (gap <= 2 * base),
+  //   * the size ratio is <= SCRIPT_MAX_RATIO of the base,
+  //   * the baseline offset exceeds a small tolerance.
+  // This is intentionally local (not a page-wide size threshold): a page can
+  // contain legitimate small text (figure captions, table labels) that must
+  // still be emphasized, so "small" only means "small relative to its own base".
+  //
+  // Returns 'subscript', 'superscript', or null.
+  const SCRIPT_MAX_RATIO = 0.85;   // script run is at most 85% of its base size
+  const SCRIPT_LINE_BAND = 0.85;   // base must be within 0.85 * base size vertically
+  const SCRIPT_MAX_GAP = 2.0;      // base must be within 2 * base size horizontally
+
+  function itemFontSize(item) {
+    const t = item && item.transform;
+    if (!t || t.length < 6) return NaN;
+    return Math.hypot(t[2], t[3]);
+  }
+
+  // Given one item and the full page's items, find the base run it belongs to.
+  // The base is the larger, same-line, horizontally nearest run. Returns the
+  // base item or null.
+  function findScriptBase(item, items) {
+    const size = itemFontSize(item);
+    if (!Number.isFinite(size) || size <= 0) return null;
+    const t = item.transform;
+    const x = t[4];
+    const width = Number.isFinite(item.width) ? item.width : 0;
+    let best = null;
+    let bestGap = Infinity;
+    for (const other of items) {
+      if (!other || other === item) continue;
+      const otherSize = itemFontSize(other);
+      if (!Number.isFinite(otherSize)) continue;
+      // The base must be materially larger than the candidate script run.
+      if (otherSize <= size / SCRIPT_MAX_RATIO) continue;
+      // ...and on the same visual line (small vertical offset band).
+      if (Math.abs(t[5] - other.transform[5]) > otherSize * SCRIPT_LINE_BAND) continue;
+      // ...and horizontally close (a script is attached to its base run, not a
+      // different column/element elsewhere on the page).
+      const otherX = other.transform[4];
+      const otherWidth = Number.isFinite(other.width) ? other.width : 0;
+      const gap = Math.max(otherX - (x + width), x - (otherX + otherWidth), 0);
+      if (gap > otherSize * SCRIPT_MAX_GAP) continue;
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = other;
+      }
+    }
+    return best;
+  }
+
+  // Classify a single item against a precomputed base (see findScriptBase).
+  // Returns 'subscript', 'superscript', or null.
+  function classifyScriptAgainstBase(item, base) {
+    if (!item || !base) return null;
+    const size = itemFontSize(item);
+    const baseSize = itemFontSize(base);
+    if (!Number.isFinite(size) || !Number.isFinite(baseSize) || baseSize <= 0) return null;
+    if (size > baseSize * SCRIPT_MAX_RATIO) return null;
+    const dy = item.transform[5] - base.transform[5];
+    const tol = Math.max(baseSize * 0.015, 0.05);
+    if (dy > tol) return 'superscript';
+    if (dy < -tol) return 'subscript';
+    return null;
+  }
+
+  // Compatibility wrapper for callers that already know the base size and
+  // baseline. Prefer classifyScriptAgainstBase when the base item is available.
+  function classifyScript(item, bodyFontSize, bodyBaselineY) {
+    if (!item || !item.transform) return null;
+    const size = itemFontSize(item);
+    if (!Number.isFinite(size) || size <= 0) return null;
+    const baseSize = Number.isFinite(bodyFontSize) && bodyFontSize > 0 ? bodyFontSize : null;
+    if (!baseSize) return null;
+    if (size > baseSize * SCRIPT_MAX_RATIO) return null;
+    if (!Number.isFinite(bodyBaselineY)) return 'subscript';
+    const dy = item.transform[5] - bodyBaselineY;
+    const tol = Math.max(baseSize * 0.015, 0.05);
+    if (dy > tol) return 'superscript';
+    if (dy < -tol) return 'subscript';
+    return null;
+  }
+
   function close(a, b, eps) {
     return Math.abs(a - b) <= (eps === undefined ? EPS : eps);
   }
@@ -145,8 +241,6 @@
       : 'scaleX(' + sx.toFixed(6) + ')';
     return true;
   }
-
-
 
   // Compare an item's intended origin against the measured geometry. Returns an
   // array of drift descriptors (one per violation); empty array means no drift.
@@ -217,6 +311,10 @@
   const BR = global.BR || (global.BR = {});
   BR.LayoutPreserver = Object.freeze({
     computePlacement,
+    classifyScript,
+    classifyScriptAgainstBase,
+    findScriptBase,
+    itemFontSize,
     positionSpan,
     measureSpan,
     detectDrift,
@@ -230,6 +328,10 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       computePlacement,
+      classifyScript,
+      classifyScriptAgainstBase,
+      findScriptBase,
+      itemFontSize,
       positionSpan,
       measureSpan,
       detectDrift,

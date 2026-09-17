@@ -105,6 +105,49 @@
     return letters === letters.toUpperCase() && letters !== letters.toLowerCase();
   }
 
+  // A standalone math operator or delimiter is not a word and must never
+  // receive a fixation prefix. A "-" drawn in a math font is a minus sign, not
+  // a hyphen between syllables; stroking only the first N characters of a
+  // multi-character operator run (for example "exp(-1/2)") would also emphasize
+  // the wrong glyph. This covers the operators that appear in inline PDF
+  // equations: minus, plus, equals, multiplication, division slash, and
+  // bracket/comma delimiters.
+  //
+  // Every dash variant is listed (hyphen U+2010, non-breaking U+2011, figure
+  // U+2012, en/em dash, horizontal bar, small forms, fullwidth, and ASCII
+  // hyphen U+002D) because PDFs are inconsistent about which codepoint they
+  // embed for a visible minus. Only operator-ONLY runs match, so a hyphenated
+  // word like "well-known" is still a word and keeps its fixation prefix.
+  const MATH_OPERATOR_CHARS = '\u2212\u2010\u2011\u2012\u2013\u2014\u2015\uFE58\uFE63\uFF0D\u002D+\u00B1\u00D7\u00F7=\u2044\u2215/|<>\u2264\u2265\u2260\u2248\u2211\u220F\u222B()[]{}.,;:!?';
+  function isMathOperator(word) {
+    if (typeof word !== 'string' || word.length === 0) return false;
+    for (const ch of word) {
+      if (MATH_OPERATOR_CHARS.indexOf(ch) === -1) return false;
+    }
+    return true;
+  }
+
+  // Detect an all-caps acronym that carries a lowercase plural suffix, e.g.
+  // "FIDs" (FID + s), "URLs", "PDFs", "IDs", "ATMs", "BUSes". The acronym part
+  // is stroked in full (all-caps), but the lowercase plural marker is NOT
+  // emphasized, so we split it off rather than treating the whole token as
+  // full-stroke. Returns { base, suffix } or null when the token is not an
+  // acronym-with-plural form. Rejects mixed case ("FiDs"), normal lowercase
+  // plurals ("boxes", "reads"), single-letter bases ("Es", "Ts"), and fully
+  // uppercase tokens like "FIDES" (those keep the all-caps full-stroke path).
+  function splitAcronymPlural(word) {
+    if (typeof word !== 'string' || word.length === 0) return null;
+    let i = word.length - 1;
+    while (i >= 0 && word[i] !== word[i].toUpperCase()) i -= 1; // lowercase run (end)
+    const suffix = word.slice(i + 1);
+    if (suffix !== 's' && suffix !== 'es') return null;
+    const base = word.slice(0, word.length - suffix.length);
+    const baseLetters = base.replace(/[^\p{L}]/gu, '');
+    if (baseLetters.length < 2) return null;                     // "Es" -> too short
+    if (baseLetters !== baseLetters.toUpperCase()) return null;   // "FiDs" -> mixed
+    return { base, suffix };
+  }
+
   // High-level: turn a text run into an ordered list of segments, each either
   // a whitespace segment (keep verbatim) or an emphasized word segment.
   //   -> [{ type: 'space', text }, { type: 'word', text, head, tail, headLength }]
@@ -112,6 +155,33 @@
     return tokenize(text).map((part) => {
       if (/^\s+$/.test(part)) {
         return { type: 'space', text: part };
+      }
+      // Standalone math operators/delimiters are rendered verbatim and never
+      // stroked, so a formula's "-" keeps its true meaning and position.
+      if (isMathOperator(part)) {
+        return {
+          type: 'word',
+          word: part,
+          head: '',
+          tail: part,
+          headLength: 0,
+          full: false,
+          operator: true
+        };
+      }
+      // An all-caps acronym with a lowercase plural suffix ("FIDs") keeps the
+      // acronym part stroked in full but leaves the plural "s"/"es" unstroked,
+      // so it splits into head = acronym and tail = plural marker.
+      const plural = splitAcronymPlural(part);
+      if (plural) {
+        return {
+          type: 'word',
+          word: part,
+          head: plural.base,
+          tail: plural.suffix,
+          headLength: plural.base.length,
+          full: false
+        };
       }
       const e = emphasizeWord(part, percent);
       // Numbers and all-caps words are emphasized in full (every glyph stroked),
@@ -129,6 +199,8 @@
     emphasizeWord,
     isNumberLike,
     isAllCaps,
+    splitAcronymPlural,
+    isMathOperator,
     analyze
   });
 
@@ -140,6 +212,8 @@
       emphasizeWord,
       isNumberLike,
       isAllCaps,
+      splitAcronymPlural,
+      isMathOperator,
       analyze
     };
   }

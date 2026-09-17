@@ -136,6 +136,14 @@
     0x0BE2: 'o',   // U+0BE2 (Tamil)   -> latin o
     0x0BE6: 's',   // U+0BE6 (Tamil)   -> latin s
     0x0C14: 'ν',   // U+0C14 (Telugu)  -> Greek small nu
+    // Page-3 math font (Cambria Math, Identity-H) leaks these codepoints for
+    // the subscript 'ref' of nu_ref. They are distinct glyph ids from the
+    // U+0CD0/U+0CD1/U+0CDD forms used elsewhere on the page, so both sets
+    // must be mapped.
+    0x0C90: 'r',   // U+0C90 (Telugu)  -> latin r
+    0x0C91: 'e',   // U+0C91 (Telugu)  -> latin e
+    0x0C92: 'f',   // U+0C92 (Telugu)  -> latin f
+    0x0CC1: '\u200B', // U+0CC1 (Telugu) -> zero-width script positioning artifact
     0x0CD0: 'e',   // U+0CD0 (Kannada) -> latin e
     0x0CD1: 'f',   // U+0CD1 (Kannada) -> latin f
     0x0CDD: 'r',   // U+0CDD (Kannada) -> latin r
@@ -156,9 +164,37 @@
     return SYMBOL;
   }
 
+  // Unicode has several visually similar dash/minus codepoints and math PDFs
+  // are inconsistent about which one they embed. normalizeMinus maps a single
+  // dash codepoint to canonical MINUS SIGN U+2212 so formulas render and
+  // tokenize consistently (see isMathOperator).
+  //
+  // remapTextForFont applies that normalization to a standalone single-dash run
+  // only. Rewriting every dash inside a word would corrupt prose: "well-known"
+  // would become "well-minus-known", and an en dash in "peak - trough" would
+  // become a minus, changing both the rendered glyph and its advance width.
+  const MINUS_VARIANTS = '\u2212\u2010\u2011\u2012\u2013\u2014\u2015\uFE58\uFE63\uFF0D\u002D';
+  function normalizeMinus(ch) {
+    if (typeof ch !== 'string' || ch.length !== 1) return ch;
+    return MINUS_VARIANTS.indexOf(ch) !== -1 ? '\u2212' : ch;
+  }
+
+  // True when a run is nothing but dash characters and whitespace, e.g. "-",
+  // " - ". Such a run is a math operator / bullet, never a word hyphen.
+  function isStandaloneDashRun(text) {
+    if (typeof text !== 'string' || text.length === 0) return false;
+    let sawDash = false;
+    for (const ch of text) {
+      if (/\s/.test(ch)) continue;
+      if (MINUS_VARIANTS.indexOf(ch) === -1) return false;
+      sawDash = true;
+    }
+    return sawDash;
+  }
+
   function remapCodepoint(cp, table) {
     const leaked = LEAKED_GID[cp];
-    if (leaked !== undefined) return leaked;
+    if (leaked !== undefined) return normalizeMinus(leaked);
     const ch = String.fromCodePoint(cp);
     if (cp < PUA_START || cp > PUA_END) return ch;
     const mapped = (table || SYMBOL)[cp & 0xFF];
@@ -175,6 +211,9 @@
     for (const ch of str) {
       out += remapCodepoint(ch.codePointAt(0), table);
     }
+    // A lone dash run is a math operator: give it the canonical minus glyph so
+    // it renders and tokenizes uniformly. Nothing inside a word is touched.
+    if (isStandaloneDashRun(out)) out = normalizeMinus(out.trim());
     return out;
   }
 
@@ -211,13 +250,13 @@
 
   const BR = global.BR || (global.BR = {});
   BR.SymbolEncoding = Object.freeze({
-    remapSymbolText, remapTextForFont, hasSymbolPua, hasSymbolGlyph,
+    remapSymbolText, remapTextForFont, hasSymbolPua, hasSymbolGlyph, normalizeMinus, isStandaloneDashRun,
     SYMBOL, WINGDINGS, ZAPFDINGBATS, LEAKED_GID
   });
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      remapSymbolText, remapTextForFont, hasSymbolPua, hasSymbolGlyph,
+      remapSymbolText, remapTextForFont, hasSymbolPua, hasSymbolGlyph, normalizeMinus, isStandaloneDashRun,
       SYMBOL, WINGDINGS, ZAPFDINGBATS, LEAKED_GID
     };
   }
