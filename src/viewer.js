@@ -16,6 +16,8 @@ import {
   renderPageToCanvas,
   getTextContent,
   getFontBaseNames,
+  getLinkAnnotations,
+  rectsOverlap,
   getViewport,
   DEVICE_SCALE
 } from './pdf_renderer.js';
@@ -232,7 +234,7 @@ import {
     const h = Math.ceil(viewport.height);
 
     // Build the page frame via Media Preserver (canvas z0 + text layer z2).
-    const { frame, canvas, ctx, textLayer } = Media.createPageFrame(w, h);
+    const { frame, canvas, ctx, linkLayer, textLayer } = Media.createPageFrame(w, h);
     el.pageStack.innerHTML = '';
     el.pageStack.appendChild(frame);
 
@@ -254,6 +256,7 @@ import {
     let textItems = [];
     let textStyles = {};
     let fontBaseNames = {};
+    let links = [];
     try {
       const content = await getTextContent(page);
       textItems = content.items || [];
@@ -269,15 +272,100 @@ import {
     try { await page.cleanup(); } catch (e) {}
 
     setLoadingProgress(0.9);
+    try {
+      links = await getLinkAnnotations(page, viewport);
+    } catch (err) { links = []; }
+    buildLinkLayer(linkLayer, links);
+
     if (!textItems.length) {
       reportStatus('No machine text found; showing the PDF as-is.', false);
     } else {
-      buildTextLayer(textLayer, viewport, textItems, textStyles, fontBaseNames);
+      buildTextLayer(textLayer, viewport, textItems, textStyles, fontBaseNames, links);
     }
 
     setLoadingProgress(1);
     updateToolbarState();
     reportStatus('Ready');
+  }
+
+  // ---- Hyperlink layer ------------------------------------------------------
+  // PDF.js exposes link rectangles in annotation space. Convert those to the
+  // rendered viewport, then place transparent hit targets in the z-order gap
+  // between the paint canvas and the text overlay. The text layer stays
+  // pointer-events:none, so links keep working without interfering with
+  // selection or bionic glyph positioning.
+  function buildLinkLayer(linkLayer, links) {
+    if (!linkLayer) return;
+    linkLayer.innerHTML = '';
+    for (const link of links || []) {
+      if (!link || !Array.isArray(link.rect)) continue;
+      const [x1, y1, x2, y2] = link.rect;
+      const target = document.createElement('a');
+      target.className = 'pdf-link-target';
+      target.style.left = `${x1}px`;
+      target.style.top = `${y1}px`;
+      target.style.width = `${Math.max(1, x2 - x1)}px`;
+      target.style.height = `${Math.max(1, y2 - y1)}px`;
+      // Never trust a PDF-supplied URL. Only attach a live href when the
+      // shared security policy allows the scheme; otherwise leave the
+      // rectangle non-interactive so the underlying text stays selectable.
+      const safeUrl = typeof Security.sanitizeExternalLink === 'function'
+        ? Security.sanitizeExternalLink(link.url)
+        : null;
+      if (safeUrl) {
+        target.href = safeUrl;
+        target.target = '_blank';
+        target.rel = 'noopener noreferrer';
+        target.title = safeUrl;
+      } else if (link.dest) {
+        target.href = '#';
+        target.title = 'Go to linked page';
+        target.addEventListener('click', (event) => {
+          event.preventDefault();
+          followLinkDestination(link.dest);
+        });
+      } else {
+        // Unknown or unsafe destination: do not expose a click target.
+        continue;
+      }
+      linkLayer.appendChild(target);
+    }
+  }
+
+  async function followLinkDestination(dest) {
+    if (!pdfDoc || dest == null) return;
+    try {
+      const destination = typeof dest === 'string'
+        ? await pdfDoc.getDestination(dest)
+        : dest;
+      if (!Array.isArray(destination) || !destination.length) return;
+      const ref = destination[0];
+      if (ref && typeof ref === 'object' && 'num' in ref) {
+        const index = await pdfDoc.getPageIndex(ref);
+        await goToPage(index + 1);
+        return;
+      }
+      const pageNumber = Number(ref);
+      if (Number.isFinite(pageNumber)) await goToPage(pageNumber + 1);
+    } catch (err) {
+      reportStatus('Could not follow that link.', true);
+    }
+  }
+
+  function itemIntersectsLink(item, links, viewport) {
+    if (!item || !item.transform || !links || !links.length) return false;
+    const p = Layout.computePlacement(item, viewport.transform);
+    const fontSize = p.fontSize || 0;
+    const width = Number.isFinite(item.width)
+      ? item.width * ((viewport.transform && viewport.transform[0]) || 1)
+      : 0;
+    const rect = [
+      p.x,
+      p.y - fontSize,
+      p.x + Math.max(width, fontSize),
+      p.y + Math.max(fontSize * 0.25, 1)
+    ];
+    return links.some((link) => rectsOverlap(rect, link.rect, 1));
   }
 
   // ---- Bionic + Layout + Media pipeline (spec 3.2/3.3) ----------------------
@@ -298,7 +386,7 @@ import {
     return '"Times New Roman", Georgia, "Cambria Math", serif, "Segoe UI Symbol", "Noto Sans Symbols", sans-serif';
   }
 
-  function buildTextLayer(textLayer, viewport, items, styles, fontBaseNames) {
+  function buildTextLayer(textLayer, viewport, items, styles, fontBaseNames, links) {
     const styleClass = STYLE_CLASSES[settings.style] || STYLE_CLASSES.stroke;
     const strokeWidth = STROKE_WIDTHS[settings.strength] || STROKE_WIDTHS[2];
     const bionicOn = !!settings.enabled;
@@ -342,6 +430,7 @@ import {
       // given a fixation-prefix stroke (which would emphasize the wrong glyphs).
       const scriptKind = scriptKinds.get(item) || null;
       const isScript = !!scriptKind;
+      const isLink = itemIntersectsLink(item, links, viewport);
 
       const fontStyle = stylesMap[item.fontName] || {};
       const family = resolveFontFamily(fontStyle.fontFamily);
@@ -359,8 +448,9 @@ import {
       span.style.whiteSpace = 'pre';
       Layout.positionSpan(span, placement);
 
-      if (!bionicOn || isScript) {
-        // Disabled, or a sub/superscript run: render verbatim, never stroked.
+      if (!bionicOn || isScript || isLink) {
+        // Disabled, a sub/superscript run, or hyperlink text: render verbatim,
+        // never stroked. The transparent link layer supplies the click target.
         span.textContent = text;
       } else if (Bionic && typeof Bionic.analyze === 'function') {
         const segments = Bionic.analyze(text, pct);
@@ -475,10 +565,31 @@ import {
 
   async function goToPage(pageNumber) {
     if (!pdfDoc) return;
-    const clamped = Math.max(1, Math.min(pdfDoc.numPages, pageNumber));
-    if (clamped === currentPageNumber) return;
+    const requested = Number(pageNumber);
+    if (!Number.isFinite(requested)) return;
+    const clamped = Math.max(1, Math.min(pdfDoc.numPages, Math.round(requested)));
+    if (clamped === currentPageNumber) {
+      syncJumpInput();
+      return;
+    }
     currentPageNumber = clamped;
     await renderPage(currentPageNumber);
+  }
+
+  function syncJumpInput() {
+    if (!el || !el.jumpToPage) return;
+    const count = pdfDoc ? pdfDoc.numPages : 1;
+    el.jumpToPage.max = String(count);
+    if (document.activeElement !== el.jumpToPage) {
+      el.jumpToPage.value = String(currentPageNumber);
+    }
+  }
+
+  async function submitJumpToPage() {
+    if (!pdfDoc || !el || !el.jumpToPage) return;
+    await goToPage(el.jumpToPage.value);
+    syncJumpInput();
+    el.jumpToPage.select();
   }
 
   // ---- Toolbar wiring --------------------------------------------------------
@@ -500,8 +611,14 @@ import {
     el.zoomLevel.textContent = `${Math.round(scale * 100)}%`;
     el.prev.disabled = !pdfDoc || currentPageNumber <= 1;
     el.next.disabled = !pdfDoc || currentPageNumber >= count;
-    el.zoomOut.disabled = !pdfDoc || scale <= MIN_SCALE;
-    el.zoomIn.disabled = !pdfDoc || scale >= MAX_SCALE;
+    if (el.jumpToPage) {
+      el.jumpToPage.disabled = !pdfDoc;
+      el.jumpToPage.max = String(count);
+    }
+    if (el.jumpPageBtn) el.jumpPageBtn.disabled = !pdfDoc;
+    if (el.zoomOut) el.zoomOut.disabled = !pdfDoc || scale <= MIN_SCALE;
+    if (el.zoomIn) el.zoomIn.disabled = !pdfDoc || scale >= MAX_SCALE;
+    syncJumpInput();
   }
 
   function wireToolbar() {
@@ -540,6 +657,17 @@ import {
 
     el.prev.addEventListener('click', () => goToPage(currentPageNumber - 1));
     el.next.addEventListener('click', () => goToPage(currentPageNumber + 1));
+    if (el.jumpToPage) {
+      el.jumpToPage.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          submitJumpToPage();
+        }
+      });
+    }
+    if (el.jumpPageBtn) {
+      el.jumpPageBtn.addEventListener('click', () => submitJumpToPage());
+    }
     el.zoomOut.addEventListener('click', () => handleZoom(-SCALE_STEP));
     el.zoomIn.addEventListener('click', () => handleZoom(SCALE_STEP));
   }
@@ -556,6 +684,8 @@ import {
       prev: $('prev'),
       next: $('next'),
       page: $('page'),
+      jumpToPage: $('jump-page'),
+      jumpPageBtn: $('jump-page-btn'),
       zoomIn: $('zoom-in'),
       zoomOut: $('zoom-out'),
       zoomLevel: $('zoom-level'),
@@ -601,7 +731,7 @@ import {
   }
 
   window.__bionicViewer = {
-    initViewer, handleZoom, goToPage, renderPage, openPdf, loadPdfBytes,
+    initViewer, handleZoom, goToPage, submitJumpToPage, renderPage, openPdf, loadPdfBytes,
     onSettingsChanged, reportStatus, parseSourceFromLocation
   };
 })();

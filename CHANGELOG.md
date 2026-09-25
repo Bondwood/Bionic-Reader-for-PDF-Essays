@@ -7,6 +7,8 @@ project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Viewer toolbar now has a "Jump to" page control with a Go button and
+  Enter-key support.
 
 ### Changed
 

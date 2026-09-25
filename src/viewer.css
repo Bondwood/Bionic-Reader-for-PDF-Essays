@@ -80,6 +80,38 @@ body {
 }
 #page { font-size: 13px; min-width: 56px; text-align: center; }
 
+.toolbar-divider {
+  width: 1px;
+  height: 22px;
+  background: #4a5263;
+  margin: 0 2px;
+}
+
+.jump-to .toolbar-label {
+  white-space: nowrap;
+}
+
+.page-input {
+  width: 64px;
+  height: 30px;
+  padding: 0 7px;
+  border: 1px solid #353b49;
+  border-radius: 5px;
+  background: #2a3040;
+  color: var(--toolbar-fg);
+  font-size: 13px;
+}
+.page-input::placeholder { color: var(--toolbar-muted); }
+.page-input:hover:not(:disabled),
+.page-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.page-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .toolbar-status {
   flex: 0 1 auto;
   font-size: 12px;
@@ -157,6 +189,29 @@ body {
   transform-origin: 0 0;
   /* Default emphasis (central constraint): stroke does NOT change advance
      width, so every glyph stays at its original coordinate. */
+}
+
+/* Hyperlink hit targets. Transparent, clickable, and below the text overlay
+   so website links and internal PDF links continue to work. */
+.pdf-link-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pdf-link-target {
+  position: absolute;
+  display: block;
+  pointer-events: auto;
+  background: transparent;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.pdf-link-target:hover {
+  background: rgba(79, 140, 255, 0.14);
 }
 
 /* Bionic emphasis styles (zero-layout-change strategies, spec 2.3). */

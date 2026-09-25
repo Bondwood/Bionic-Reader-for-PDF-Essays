@@ -50,6 +50,13 @@
     canvas.style.zIndex = String(Z.CANVAS);
     frame.appendChild(canvas);
 
+    const linkLayer = document.createElement('div');
+    linkLayer.className = 'pdf-link-layer';
+    linkLayer.style.width = `${Math.ceil(width)}px`;
+    linkLayer.style.height = `${Math.ceil(height)}px`;
+    linkLayer.style.zIndex = String(Z.ANNOTATION);
+    frame.appendChild(linkLayer);
+
     const textLayer = document.createElement('div');
     textLayer.className = 'pdf-text-layer';
     textLayer.style.width = `${Math.ceil(width)}px`;
@@ -57,7 +64,7 @@
     textLayer.style.zIndex = String(Z.TEXT_LAYER);
     frame.appendChild(textLayer);
 
-    return { frame, canvas, ctx, textLayer };
+    return { frame, canvas, ctx, linkLayer, textLayer };
   }
 
   // Assert that a canvas has not been re-sized or had its pixel buffer replaced

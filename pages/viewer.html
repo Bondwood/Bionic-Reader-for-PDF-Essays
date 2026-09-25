@@ -40,6 +40,12 @@
       <button id="prev" type="button" class="toolbar-btn" title="Previous page">‹</button>
       <span id="page">1 / 1</span>
       <button id="next" type="button" class="toolbar-btn" title="Next page">›</button>
+      <span class="toolbar-divider" aria-hidden="true"></span>
+      <label class="toolbar-group jump-to" for="jump-page" title="Jump to a page">
+        <span class="toolbar-label">Jump to</span>
+        <input id="jump-page" class="page-input" type="number" min="1" step="1" inputmode="numeric" placeholder="#" aria-label="Page number" disabled>
+      </label>
+      <button id="jump-page-btn" type="button" class="toolbar-btn" title="Jump to page" disabled>Go</button>
     </div>
     <span id="status" class="toolbar-status" role="status" aria-live="polite"></span>
   </div>

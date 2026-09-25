@@ -12,7 +12,7 @@ to text items, coordinates, fonts, and the paint canvas.
 
 ## Features
 
-- Self-hosted PDF.js viewer with page navigation, zoom, progress, and errors.
+- Self-hosted PDF.js viewer with page navigation, jump-to-page, zoom, progress, and errors.
 - Bionic emphasis with three zero-layout-change styles:
   - **Stroke** (`-webkit-text-stroke`) — the default.
   - **Highlight** (background color).

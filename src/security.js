@@ -22,6 +22,21 @@
   const REJECTED_PROTO_RE = /^(data|javascript|blob):/i;
   const EXTENSION_SCHEME_RE = /^chrome(-extension)?:\/\//i;
 
+  // Schemes that are safe to open from a link annotation. Unlike PDF routing,
+  // this also permits mailto:/tel: (common in documents) while still rejecting
+  // active-content schemes such as javascript: and data:.
+  const ALLOWED_LINK_PROTO_RE = /^(https?|mailto|tel):/i;
+  const REJECTED_LINK_PROTO_RE = /^(data|javascript|blob|file):/i;
+
+  function sanitizeExternalLink(url) {
+    if (typeof url !== 'string') return null;
+    const trimmed = url.trim();
+    if (!trimmed) return null;
+    if (REJECTED_LINK_PROTO_RE.test(trimmed)) return null;
+    if (EXTENSION_SCHEME_RE.test(trimmed)) return null;
+    return ALLOWED_LINK_PROTO_RE.test(trimmed) ? trimmed : null;
+  }
+
   // Heuristic for "this URL points at a PDF": a path segment ending in .pdf,
   // optionally followed by a query string. Header-based signals (Content-Type:
   // application/pdf) cannot be read by a content script and are resolved by the
@@ -78,7 +93,8 @@
     looksLikePdf,
     isPdfLikeUrl,
     sanitizePdfUrl,
-    sanitizeSource
+    sanitizeSource,
+    sanitizeExternalLink
   });
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -88,7 +104,8 @@
       looksLikePdf,
       isPdfLikeUrl,
       sanitizePdfUrl,
-      sanitizeSource
+      sanitizeSource,
+      sanitizeExternalLink
     };
   }
 })(typeof window !== 'undefined' ? window : globalThis);

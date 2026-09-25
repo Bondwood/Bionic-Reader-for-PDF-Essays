@@ -133,6 +133,49 @@ export async function getTextItems(page) {
   return c.items;
 }
 
+// Read link annotations for a page and return their viewport-space rectangles
+// plus resolved destinations. PDF.js normalizes URLs on link annotations; the
+// caller decides whether to open a URL, jump within the document, or ignore it.
+export async function getLinkAnnotations(page, viewport) {
+  let annotations = [];
+  try {
+    annotations = await page.getAnnotations({ intent: 'display' });
+  } catch (err) {
+    return [];
+  }
+  const links = [];
+  for (const annotation of annotations || []) {
+    if (!annotation || annotation.subtype !== 'Link') continue;
+    const rect = Array.isArray(annotation.rect) ? annotation.rect : null;
+    if (!rect || rect.length !== 4) continue;
+    let viewportRect = null;
+    try {
+      viewportRect = viewport.convertToViewportRectangle(rect);
+    } catch (err) {
+      viewportRect = null;
+    }
+    if (!viewportRect) continue;
+    const x1 = Math.min(viewportRect[0], viewportRect[2]);
+    const y1 = Math.min(viewportRect[1], viewportRect[3]);
+    const x2 = Math.max(viewportRect[0], viewportRect[2]);
+    const y2 = Math.max(viewportRect[1], viewportRect[3]);
+    links.push({
+      url: typeof annotation.url === 'string' ? annotation.url : null,
+      dest: annotation.dest || null,
+      rect: [x1, y1, x2, y2],
+      unsafeUrl: typeof annotation.unsafeUrl === 'string' ? annotation.unsafeUrl : null
+    });
+  }
+  return links;
+}
+
+// True when a link rectangle overlaps a text item rectangle in viewport space.
+export function rectsOverlap(a, b, tolerance) {
+  if (!a || !b) return false;
+  const eps = Number.isFinite(tolerance) ? tolerance : 0;
+  return a[0] < b[2] + eps && a[2] > b[0] - eps && a[1] < b[3] + eps && a[3] > b[1] - eps;
+}
+
 // Resolve each text-content fontName (e.g. "g_d0_f3") to the PDF's real
 // BaseFont name (e.g. "HOKHHL+Wingdings-Regular"). getTextContent() only exposes
 // a generic family ("serif"/"sans-serif"), which is not enough to tell a Symbol
