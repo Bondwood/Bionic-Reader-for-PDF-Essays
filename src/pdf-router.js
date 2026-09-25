@@ -1,7 +1,7 @@
 // Module 3 — PDF Router (content-script portion).
-// Detects when the user navigates to (or embeds) a PDF and redirects that
-// navigation into the extension's Bionic viewer, so a user "just opens a PDF
-// and it gets bionicized."
+// Detects when the user navigates to (or embeds) a PDF and opens it in the
+// extension's Bionic viewer, so a user can "just open a PDF and it gets
+// bionicized" without losing the page or tab they came from.
 //
 // Detected sources:
 //   * <a href="...\.pdf">            -> open viewer tab (no native download/viewer)

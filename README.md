@@ -22,8 +22,9 @@ to text items, coordinates, fonts, and the paint canvas.
   compensates (via `scaleX`) only if a measurable drift is detected — the fast
   path never touches layout for the default styles.
 - Routing: page navigation, `<a href="*.pdf">`, `<embed>`/`<object>`/`<iframe>`
-  pointing at a PDF all open in the Bionic viewer (dynamic
-  `declarativeNetRequest` rule + content-script fallback).
+  pointing at a PDF all open in the Bionic viewer **in a new tab**, so the
+  original page is never replaced (webNavigation/tabs listeners +
+  content-script fallback).
 - Popup (quick toggle + "Open PDF in Viewer") and a full Options page, persisted
   to `chrome.storage.sync`.
 - Defense-in-depth URL validation (`src/security.js`): only `http(s)`/`file://`
@@ -35,7 +36,7 @@ to text items, coordinates, fonts, and the paint canvas.
 ```
 Bionic Reader/
 ├── manifest.json
-├── background.js              # Module 2 — service worker (messaging, routing, DNR)
+├── background.js              # Module 2 — service worker (messaging, new-tab routing)
 ├── src/
 │   ├── viewer.js              # Module 4 — viewer page controller (ES module)
 │   ├── viewer.css
@@ -49,7 +50,7 @@ Bionic Reader/
 ├── pages/                     # viewer.html, options.*, popup.*
 ├── vendor/pdfjs/              # vendored PDF.js (pdf.mjs, worker, cmaps, fonts, wasm)
 ├── icons/                     # 16/32/48/128
-├── rules/rules.json           # DNR reference (dynamic rule lives in background.js)
+├── rules/rules.json           # reference only — no active DNR redirect rule
 ├── docs/                      # module specs
 └── tests/                     # unit tests + fixture
 ```

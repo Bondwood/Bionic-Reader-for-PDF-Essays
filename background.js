@@ -1,7 +1,7 @@
 // Module 2 — Background Service Worker.
 // Maintains global enabled/disabled state, coordinates inter-module messaging,
-// decides when to redirect PDF navigations, and opens the Bionic viewer for a
-// given PDF URL.
+// detects PDF main-frame navigations, and opens the Bionic viewer in a NEW tab
+// (never in place of the page the user navigated to) for a given PDF URL.
 
 // Shared protocol (Module 11) and security/URL validation (Module 12) are
 // imported as side-effect ES modules. They attach to globalThis.BR (they are
@@ -83,63 +83,33 @@ function isEnabled() {
 }
 
 
-// ---- DeclarativeNetRequest routing rule ------------------------------------
-// A dynamic redirect rule that sends main-frame .pdf navigations to the Bionic
-// viewer. A dynamic rule is used (instead of the static rules/rules.json) so the
-// extension ID can be substituted at runtime; rules.json is currently empty and
-// is owned by Module 3.
-const DNR_RULE_ID = 1;
+// ---- Direct-navigation routing ---------------------------------------------
+// Direct PDF navigations (typed URL, bookmark, redirect, window.location) are
+// detected by the webNavigation / tabs.onUpdated listeners below and open the
+// Bionic viewer in a NEW tab, leaving the original navigation untouched. The
+// viewer must never replace the originating tab, so no declarativeNetRequest
+// redirect rule is registered.
+//
+// A stale dynamic rule from older versions is removed once on install/update.
+const LEGACY_DNR_RULE_ID = 1;
 
-function buildDnrRule() {
-  const extensionId = chrome.runtime.id;
-  return {
-    id: DNR_RULE_ID,
-    priority: 1,
-    action: {
-      type: 'redirect',
-      redirect: {
-        // \\0 === the matched URL, substituted into the viewer query param.
-        regexSubstitution: `chrome-extension://${extensionId}/pages/viewer.html?url=\\0`
-      }
-    },
-    condition: {
-      regexFilter: '^(?:https?|file)://.*\\.pdf(?:\\?[^#]*)?$',
-      resourceTypes: ['main_frame']
-    }
-  };
-}
-
-async function registerDnrRule() {
+async function removeLegacyDnrRule() {
+  if (!chrome.declarativeNetRequest || !chrome.declarativeNetRequest.updateDynamicRules) return false;
   try {
-    await chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds: [DNR_RULE_ID],
-      addRules: [buildDnrRule()]
-    });
+    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: [LEGACY_DNR_RULE_ID] });
     return true;
   } catch (err) {
-    // DNR can fail (e.g. permission config); never let it crash the worker.
-    console.warn('Bionic Reader: could not register DNR rule', err);
+    // DNR may be unavailable (permission config); never let it crash the worker.
+    console.warn('Bionic Reader: could not clear legacy routing rule', err);
     return false;
   }
 }
 
-async function setDnrRuleEnabled(enabled) {
-  try {
-    await chrome.declarativeNetRequest.updateEnabledRules({
-      disableRuleIds: enabled ? [] : [DNR_RULE_ID],
-      enableRuleIds: enabled ? [DNR_RULE_ID] : []
-    });
-  } catch (err) {
-    console.warn('Bionic Reader: could not update DNR rule enabled state', err);
-  }
-}
-
-// Called on install / update and after any toggle: keeps the DNR rule's enabled
-// state in sync with the user's routing preference.
+// Called on install / update and after any toggle. With in-place redirects gone
+// there is no rule state to sync, but the cache is refreshed so the navigation
+// listeners see the latest enabled/routePdfs values immediately.
 async function syncRoutingState() {
   await refreshSettingsCache();
-  const s = settingsCache || DEFAULT_SETTINGS;
-  await setDnrRuleEnabled(!!s.enabled && !!s.routePdfs);
 }
 
 
@@ -149,14 +119,47 @@ function buildViewerUrl(pdfUrl) {
   return `chrome-extension://${extensionId}/pages/viewer.html?url=${encodeURIComponent(pdfUrl)}`;
 }
 
-// Open (or focus) the Bionic viewer tab for a PDF URL.
-async function openBionicViewer(pdfUrl, { focus = true } = {}) {
-  const viewerUrl = buildViewerUrl(pdfUrl);
-  const tabs = await chrome.tabs.query({ url: viewerUrl });
-  if (tabs && tabs.length > 0) {
-    if (focus) await chrome.tabs.update(tabs[0].id, { active: true });
-    return { type: ResponseType.OK, tabId: tabs[0].id };
+// Find an existing viewer tab showing the same PDF URL, if any.
+async function findExistingViewerTab(viewerUrl) {
+  try {
+    if (!chrome.tabs || !chrome.tabs.query) return null;
+    // Query without a match-pattern argument: the viewer URL contains a query
+    // string, and comparing exact URLs avoids match-pattern parsing quirks.
+    const tabs = await chrome.tabs.query({});
+    return tabs.find((tab) => tab && tab.url === viewerUrl) || null;
+  } catch (err) {
+    return null;
   }
+}
+
+// Open (or focus) the Bionic viewer in a NEW tab for a PDF URL. The originating
+// tab is never navigated or replaced.
+//
+// inNewWindow: create the viewer as the first tab of a separate browser window
+//              instead of the current window.
+async function openBionicViewer(pdfUrl, { focus = true, inNewWindow = false } = {}) {
+  const viewerUrl = buildViewerUrl(pdfUrl);
+
+  // Reuse an existing viewer tab for the same PDF instead of piling up tabs.
+  const existing = await findExistingViewerTab(viewerUrl);
+  if (existing) {
+    if (focus && existing.id !== undefined) {
+      try {
+        await chrome.tabs.update(existing.id, { active: true });
+        if (existing.windowId !== undefined && chrome.windows && chrome.windows.update) {
+          await chrome.windows.update(existing.windowId, { focused: true });
+        }
+      } catch (err) { /* focusing is best-effort */ }
+    }
+    return { type: ResponseType.OK, tabId: existing.id, reused: true };
+  }
+
+  if (inNewWindow && chrome.windows && chrome.windows.create) {
+    const win = await chrome.windows.create({ url: viewerUrl, focused: focus });
+    const tab = win && win.tabs && win.tabs[0];
+    return { type: ResponseType.OK, tabId: tab && tab.id, windowId: win && win.id };
+  }
+
   const tab = await chrome.tabs.create({ url: viewerUrl, active: focus });
   return { type: ResponseType.OK, tabId: tab.id };
 }
@@ -244,7 +247,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 
 // ---- Navigation routing (webNavigation / tabs.onUpdated) --------------------
-// Directs PDF main-frame navigations to the viewer when enabled.
+// Opens the viewer in a NEW tab for PDF main-frame navigations when enabled,
+// leaving the originating tab on its original URL. The viewer never replaces
+// the page the user navigated to.
 //
 // NOTE: the manifest (Module 1) does not currently grant the 'webNavigation'
 // permission, so these listeners are registered only if the API is available;
@@ -260,17 +265,16 @@ async function maybeRouteNavigation(url) {
   if (!clean || !looksLikePdf(clean)) return false;
   const s = settingsCache || await getSettings();
   if (!s.enabled || !s.routePdfs) return false;
-  await openBionicViewer(clean, { focus: false });
+  await openBionicViewer(clean, { focus: true });
   return true;
 }
 
 function onBeforeNavigate(details) {
   // Only act on top-level main-frame navigations.
   if (details.frameId !== 0 && details.frameId !== undefined) return;
-  // Guard: this callback cannot cancel a navigation from onBeforeNavigate
-  // (that requires webNavigationBlocking), so we open the viewer in a new tab
-  // and leave the original navigation alone when it isn't a viewer page. This
-  // keeps routing safe without a blocking API.
+  // This callback cannot cancel a navigation (that requires the blocking
+  // webRequest API), so instead of redirecting we open the viewer in a new tab
+  // and leave the original navigation completely alone.
   maybeRouteNavigation(details.url).catch(() => {});
 }
 
@@ -284,8 +288,8 @@ async function onTabUpdated(tabId, changeInfo, tab) {
     if (clean && looksLikePdf(clean)) {
       const s = settingsCache || await getSettings();
       if (s.enabled && s.routePdfs) {
-        // Open the viewer; do not navigate the current tab away (avoids loop).
-        await openBionicViewer(clean, { focus: false });
+        // Open the viewer in a separate tab; never navigate this tab away.
+        await openBionicViewer(clean, { focus: true });
       }
     }
   }
@@ -306,8 +310,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     }
   }
   await refreshSettingsCache();
-  // Register the DNR rule once, then sync its enabled state.
-  await registerDnrRule();
+  // Clear any dynamic redirect rule left by older versions: the viewer now
+  // opens in a new tab, so an in-place redirect must never be active.
+  await removeLegacyDnrRule();
   await syncRoutingState();
 });
 

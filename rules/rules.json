@@ -1,19 +1,4 @@
 {
-  "_comment": "REFERENCE ONLY. This static rules file is NOT declared in manifest.json: a static DNR rule cannot substitute the extension id at runtime, so background.js registers the equivalent redirect as a DYNAMIC rule using the real chrome.runtime.id. It is kept here documenting the intended routing rule (Module 3).",
-  "rules": [
-    {
-      "id": 1,
-      "priority": 1,
-      "action": {
-        "type": "redirect",
-        "redirect": {
-          "regexSubstitution": "chrome-extension://<EXTENSION_ID>/pages/viewer.html?url=\\0"
-        }
-      },
-      "condition": {
-        "regexFilter": "^(?:https?|file)://.*\\.pdf(?:\\?[^#]*)?$",
-        "resourceTypes": ["main_frame"]
-      }
-    }
-  ]
+  "_comment": "REFERENCE ONLY - there is NO ACTIVE RULE here. Bionic Reader used to redirect main-frame .pdf navigations into the viewer in-place via a dynamic declarativeNetRequest rule. That replaced the original page, so it was removed: background.js now detects PDF navigations and opens the viewer in a NEW TAB instead, leaving the originating tab untouched. The declarativeNetRequest permission is retained only so background.js can delete the stale legacy dynamic rule (id 1) from older installs.",
+  "rules": []
 }

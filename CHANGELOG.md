@@ -11,6 +11,14 @@ project uses [Semantic Versioning](https://semver.org/).
   Enter-key support.
 
 ### Changed
+- Direct PDF navigations (typed URL, bookmark, redirect) now open the Bionic
+  viewer in a new tab instead of replacing the original page with a
+  `declarativeNetRequest` redirect. The legacy in-place redirect rule is deleted
+  on install/update, and an existing viewer tab for the same PDF is focused
+  instead of opening a duplicate.
+- PDF hyperlink text is rendered without bionic emphasis while its link stays
+  clickable (internal destinations jump within the viewer; http/https/mailto/tel
+  links open in a new tab; unsafe schemes are rejected).
 
 ### Fixed
 
